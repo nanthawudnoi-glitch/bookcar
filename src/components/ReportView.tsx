@@ -5,11 +5,14 @@ import {
   Calendar,
   Filter,
   FileText,
-  ChevronDown
+  ChevronDown,
+  FileDown
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { format, isWithinInterval, startOfDay, endOfDay, addYears } from 'date-fns';
 import { th } from 'date-fns/locale';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface Booking {
   id: string;
@@ -57,8 +60,144 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
     window.print();
   };
 
-  const ReportDocument = () => (
-    <div id="printable-report" className="font-saraban text-black leading-relaxed bg-white p-[2cm] shadow-2xl mx-auto w-[21cm] min-h-[29.7cm]">
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  const handleExportPDF = async () => {
+    setIsGeneratingPDF(true);
+    
+    // Track original styles and temporary elements to restore them later
+    const restoredStyleElements: { el: HTMLStyleElement; originalText: string }[] = [];
+    const disabledLinks: HTMLLinkElement[] = [];
+    const createdStyleTagsForLinks: HTMLStyleElement[] = [];
+
+    try {
+      const element = document.getElementById('printable-report');
+      if (!element) {
+        alert('ไม่พบเอกสารรายงานสำหรับการบันทึก PDF');
+        return;
+      }
+
+      // Convert oklch colors to standard rgb in all style tags to prevent html2canvas crash
+      const styleElements = Array.from(document.querySelectorAll('style'));
+      for (const styleEl of styleElements) {
+        const text = styleEl.textContent || '';
+        if (text.includes('oklch')) {
+          restoredStyleElements.push({ el: styleEl, originalText: text });
+          styleEl.textContent = text.replace(/oklch\s*\(([^()]+|\([^()]*\))*\)/gi, (match) => {
+            const clean = match.replace(/oklch\s*\(/i, '').replace(/\)/, '');
+            const parts = clean.trim().split(/[\s/]+/);
+            const l = parseFloat(parts[0]);
+            if (!isNaN(l)) {
+              if (l > 0.8) return 'rgb(240, 240, 240)';
+              if (l > 0.5) return 'rgb(180, 180, 180)';
+              if (l > 0.2) return 'rgb(80, 80, 80)';
+              return 'rgb(15, 15, 15)';
+            }
+            return 'rgb(120, 120, 120)';
+          });
+        }
+      }
+
+      // Process link-based stylesheets
+      const linkElements = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+      for (const linkEl of linkElements) {
+        try {
+          const rules = linkEl.sheet?.cssRules;
+          if (rules) {
+            let hasOklch = false;
+            const cssTexts: string[] = [];
+            for (let i = 0; i < rules.length; i++) {
+              const ruleText = rules[i].cssText;
+              cssTexts.push(ruleText);
+              if (ruleText.includes('oklch')) {
+                hasOklch = true;
+              }
+            }
+
+            if (hasOklch) {
+              const fullCss = cssTexts.join('\n');
+              const cleanedCss = fullCss.replace(/oklch\s*\(([^()]+|\([^()]*\))*\)/gi, (match) => {
+                const clean = match.replace(/oklch\s*\(/i, '').replace(/\)/, '');
+                const parts = clean.trim().split(/[\s/]+/);
+                const l = parseFloat(parts[0]);
+                if (!isNaN(l)) {
+                  if (l > 0.8) return 'rgb(240, 240, 240)';
+                  if (l > 0.5) return 'rgb(180, 180, 180)';
+                  if (l > 0.2) return 'rgb(80, 80, 80)';
+                  return 'rgb(15, 15, 15)';
+                }
+                return 'rgb(120, 120, 120)';
+              });
+
+              const tempStyle = document.createElement('style');
+              tempStyle.setAttribute('data-temp-clean-style', 'true');
+              tempStyle.textContent = cleanedCss;
+              document.head.appendChild(tempStyle);
+              createdStyleTagsForLinks.push(tempStyle);
+
+              linkEl.disabled = true;
+              disabledLinks.push(linkEl);
+            }
+          }
+        } catch (err) {
+          console.warn('Could not read or process stylesheet rules:', linkEl.href, err);
+        }
+      }
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const formattedStartDate = format(new Date(startDate), 'yyyyMMdd');
+      const formattedEndDate = format(new Date(endDate), 'yyyyMMdd');
+      pdf.save(`รายงานการขอใช้รถยนต์ราชการ_${formattedStartDate}-${formattedEndDate}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('เกิดข้อผิดพลาดในการสร้างไฟล์ PDF กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      // Restore original stylesheets and styles
+      for (const item of restoredStyleElements) {
+        item.el.textContent = item.originalText;
+      }
+      for (const tempStyle of createdStyleTagsForLinks) {
+        tempStyle.parentNode?.removeChild(tempStyle);
+      }
+      for (const linkEl of disabledLinks) {
+        linkEl.disabled = false;
+      }
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  const ReportDocument = ({ id }: { id?: string }) => (
+    <div id={id} className="font-saraban text-black leading-relaxed bg-white p-[2cm] shadow-2xl mx-auto w-[21cm] min-h-[29.7cm]">
       {/* Official Header */}
       <div className="relative mb-6 min-h-[64px] flex items-center justify-center">
          <img 
@@ -77,7 +216,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
         <div className="flex justify-between items-baseline gap-4">
           <p className="text-base flex-1 flex items-baseline">
             <span className="font-bold whitespace-nowrap mr-2">ที่</span>
-            <span className="flex-1 border-b border-dotted border-black px-2 text-center md:text-left">ศธ 0621.6 / ..................................</span>
+            <span className="flex-1 border-b border-dotted border-black px-2 text-center md:text-left">..................................</span>
           </p>
           <p className="text-base w-auto flex items-baseline">
             <span className="font-bold whitespace-nowrap mr-2">วันที่</span>
@@ -214,18 +353,30 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
               <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <button 
               onClick={() => setShowFullPreview(true)}
-              className="flex-1 bg-slate-900 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors shadow-lg shadow-slate-100"
+              className="flex-1 bg-slate-900 text-white py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors shadow-lg shadow-slate-100 text-sm"
             >
               <FileText className="w-4 h-4" /> แสดงตัวอย่าง
             </button>
             <button 
               onClick={handlePrint}
-              className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+              className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 text-sm"
             >
               <Printer className="w-4 h-4" /> พิมพ์
+            </button>
+            <button 
+              onClick={handleExportPDF}
+              disabled={isGeneratingPDF}
+              className={`px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg text-sm ${
+                isGeneratingPDF 
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                  : 'bg-rose-605 bg-rose-600 hover:bg-rose-700 text-white shadow-rose-100'
+              }`}
+            >
+              <FileDown className="w-4 h-4" />
+              {isGeneratingPDF ? 'กำลังสร้าง...' : 'PDF'}
             </button>
           </div>
         </div>
@@ -240,7 +391,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
 
       {/* Full Screen Preview Overlay */}
       {showFullPreview && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex flex-col items-center overflow-y-auto p-4 sm:p-8">
+        <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex flex-col items-center overflow-y-auto p-4 sm:p-8 print:hidden">
           <div className="w-full max-w-[21cm] flex justify-between items-center mb-6 text-white sticky top-0 bg-slate-900/50 p-4 rounded-2xl backdrop-blur-md z-10">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center">
@@ -254,13 +405,25 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
             <div className="flex gap-2">
               <button 
                 onClick={handlePrint}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 transition-all"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm sm:text-base cursor-pointer"
               >
                 <Printer className="w-4 h-4" /> พิมพ์ตอนนี้
               </button>
               <button 
+                onClick={handleExportPDF}
+                disabled={isGeneratingPDF}
+                className={`px-6 py-2 rounded-xl font-bold flex items-center gap-2 transition-all text-sm sm:text-base cursor-pointer ${
+                  isGeneratingPDF 
+                    ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
+                    : 'bg-rose-600 hover:bg-rose-700 text-white'
+                }`}
+              >
+                <FileDown className="w-4 h-4" />
+                {isGeneratingPDF ? 'กำลังบันทึก...' : 'ส่งออก PDF'}
+              </button>
+              <button 
                 onClick={() => setShowFullPreview(false)}
-                className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-xl font-bold transition-all"
+                className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-xl font-bold transition-all text-sm sm:text-base cursor-pointer"
               >
                 ปิดหน้าต่าง
               </button>
@@ -273,9 +436,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
         </div>
       )}
 
-      {/* Hidden for screen, visible for print */}
-      <div className="hidden print:block">
-        <ReportDocument />
+      {/* Container for PDF Generation and Print - rendered offscreen but visible to DOM canvas generation tools */}
+      <div className="absolute left-[-9999px] top-[-9999px] print:static print:left-auto print:top-auto print:block">
+        <ReportDocument id="printable-report" />
       </div>
 
       <style>{`
@@ -285,17 +448,22 @@ export const ReportView: React.FC<ReportViewProps> = ({ bookings }) => {
           }
         }
         @media print {
-          body * {
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
             visibility: hidden;
+            background: white !important;
           }
           #root, #root * {
-            display: none !important;
+            visibility: hidden;
           }
           #printable-report, #printable-report * {
-            visibility: visible;
-            display: block !important;
+            visibility: visible !important;
           }
           #printable-report {
+            display: block !important;
             position: absolute;
             left: 0;
             top: 0;
