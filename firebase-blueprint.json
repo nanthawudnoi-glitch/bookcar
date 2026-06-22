@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Government vehicle information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "plateNumber": { "type": "string" },
+        "model": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string", "enum": ["available", "maintenance", "in-use"] },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["plateNumber", "model", "status"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "Information about drivers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["available", "unavailable", "on-duty"] }
+      },
+      "required": ["name", "status"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Vehicle booking request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "vehicleName": { "type": "string" },
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "purpose": { "type": "string" },
+        "destination": { "type": "string" },
+        "passengers": { "type": "string", "description": "Names of travel companions" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "cancelled", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "adminComment": { "type": "string" }
+      },
+      "required": ["userId", "vehicleId", "startTime", "endTime", "purpose", "destination", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Available vehicles"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Booking requests"
+    },
+    "/drivers/{driverId}": {
+      "schema": "Driver",
+      "description": "Driver information"
+    }
+  }
+}
