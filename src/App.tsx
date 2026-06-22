@@ -106,6 +106,14 @@ interface Booking {
   adminComment?: string;
 }
 
+function safeToDate(val: any): Date {
+  if (!val) return new Date();
+  if (typeof val.toDate === 'function') return val.toDate();
+  if (val instanceof Date) return val;
+  if (val.seconds !== undefined) return new Date(val.seconds * 1000 + (val.nanoseconds || 0) / 1000000);
+  return new Date(val);
+}
+
 // Error Handling
 enum OperationType {
   CREATE = 'create',
@@ -134,7 +142,17 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // In a real app, we'd show a toast or notification
+  
+  if (operationType === OperationType.CREATE || operationType === OperationType.UPDATE || operationType === OperationType.DELETE) {
+    let msg = `เกิดข้อผิดพลาดในการทำรายการ (${operationType}): `;
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.toLowerCase().includes('permission-denied') || errMsg.toLowerCase().includes('permission denied')) {
+      msg += 'ไม่มีสิทธิ์ในการเข้าถึงข้อมูลหรือส่งข้อมูล (Permission Denied) กรุณาตรวจสอบสถานะการล็อคอินหรือติดต่อผู้ดูแลระบบ';
+    } else {
+      msg += errMsg;
+    }
+    alert(msg);
+  }
 }
 
 // Constants
@@ -234,6 +252,9 @@ export default function App() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isDriverEditModalOpen, setIsDriverEditModalOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+
+  const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
+  const [rejectComment, setRejectComment] = useState<string>("");
 
   // Auth Listener
   useEffect(() => {
@@ -360,8 +381,21 @@ export default function App() {
     if (!user || !selectedVehicle) return;
 
     const formData = new FormData(e.currentTarget);
-    const start = new Date(formData.get('startTime') as string);
-    const end = new Date(formData.get('endTime') as string);
+    const startTimeStr = formData.get('startTime') as string;
+    const endTimeStr = formData.get('endTime') as string;
+
+    if (!startTimeStr || !endTimeStr) {
+      alert('กรุณาระบุวันเวลาที่เริ่มและกลับให้ครบถ้วน');
+      return;
+    }
+
+    const start = new Date(startTimeStr);
+    const end = new Date(endTimeStr);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      alert('รูปแบบวันเวลาไม่ถูกต้อง กรุณาระบุใหม่');
+      return;
+    }
 
     if (start >= end) {
       alert('เวลาที่กลับต้องอยู่หลังเวลาที่เริ่ม');
@@ -372,8 +406,8 @@ export default function App() {
     const isOverlapping = bookings.some(b => 
       b.vehicleId === selectedVehicle.id && 
       (b.status === 'approved' || b.status === 'pending') && 
-      b.startTime.toDate() < end && 
-      b.endTime.toDate() > start
+      safeToDate(b.startTime) < end && 
+      safeToDate(b.endTime) > start
     );
     
     if (isOverlapping) {
@@ -381,22 +415,22 @@ export default function App() {
       return;
     }
 
-    const newBooking = {
-      userId: user.uid,
-      userName: user.displayName,
-      vehicleId: selectedVehicle.id,
-      vehicleName: `${selectedVehicle.model} (${selectedVehicle.plateNumber})`,
-      startTime: Timestamp.fromDate(start),
-      endTime: Timestamp.fromDate(end),
-      purpose: formData.get('purpose'),
-      destination: formData.get('destination'),
-      passengers: formData.get('passengers'),
-      requesterName: formData.get('requesterName') || '',
-      status: 'pending',
-      createdAt: serverTimestamp(),
-    };
-
     try {
+      const newBooking = {
+        userId: user.uid,
+        userName: user.displayName || profile?.displayName || 'User',
+        vehicleId: selectedVehicle.id,
+        vehicleName: `${selectedVehicle.model} (${selectedVehicle.plateNumber})`,
+        startTime: Timestamp.fromDate(start),
+        endTime: Timestamp.fromDate(end),
+        purpose: (formData.get('purpose') as string) || '',
+        destination: (formData.get('destination') as string) || '',
+        passengers: (formData.get('passengers') as string) || '',
+        requesterName: (formData.get('requesterName') as string) || '',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      };
+
       await addDoc(collection(db, 'bookings'), newBooking);
       setIsBookingModalOpen(false);
       setSelectedVehicle(null);
@@ -413,16 +447,16 @@ export default function App() {
       const targetVehicleId = vehicleId || currentBooking.vehicleId;
       
       if (status === 'approved') {
-        const start = currentBooking.startTime.toDate();
-        const end = currentBooking.endTime.toDate();
+        const start = safeToDate(currentBooking.startTime);
+        const end = safeToDate(currentBooking.endTime);
 
         // Check vehicle overlap (against other approved bookings)
         const isVehicleBusy = bookings.some(b => 
           b.id !== bookingId &&
           b.vehicleId === targetVehicleId &&
           b.status === 'approved' &&
-          b.startTime.toDate() < end && 
-          b.endTime.toDate() > start
+          safeToDate(b.startTime) < end && 
+          safeToDate(b.endTime) > start
         );
 
         if (isVehicleBusy) {
@@ -436,8 +470,8 @@ export default function App() {
             b.id !== bookingId &&
             b.driverId === driverId && 
             b.status === 'approved' && 
-            b.startTime.toDate() < end && 
-            b.endTime.toDate() > start
+            safeToDate(b.startTime) < end && 
+            safeToDate(b.endTime) > start
           );
           
           if (isDriverBusy) {
@@ -925,7 +959,7 @@ export default function App() {
                         <Clock className="w-4 h-4 text-slate-400" />
                         <div className="text-sm">
                           <span className="text-slate-400">เริ่ม: </span>
-                          <span className="font-semibold">{format(booking.startTime.toDate(), 'd MMM yy HH:mm', { locale: th })}</span>
+                          <span className="font-semibold">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -987,8 +1021,8 @@ export default function App() {
                       </button>
                       <button 
                         onClick={() => {
-                          const comment = prompt('ระบุเหตุผลที่ปฏิเสธ:');
-                          if (comment) handleUpdateBookingStatus(booking.id, 'rejected', comment);
+                          setRejectingBooking(booking);
+                          setRejectComment("");
                         }}
                         className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
                       >
@@ -1118,7 +1152,7 @@ export default function App() {
                           <div>
                             <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">เริ่มเดินทาง</p>
                             <p className="text-xs font-semibold text-slate-700">
-                              {format(booking.startTime.toDate(), 'd MMM yy HH:mm', { locale: th })}
+                              {format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })}
                             </p>
                           </div>
                         </div>
@@ -1129,7 +1163,7 @@ export default function App() {
                           <div>
                             <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">กลับถึง</p>
                             <p className="text-xs font-semibold text-slate-700">
-                              {format(booking.endTime.toDate(), 'd MMM yy HH:mm', { locale: th })}
+                              {format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })}
                             </p>
                           </div>
                         </div>
@@ -1661,6 +1695,75 @@ export default function App() {
                   บันทึกการแก้ไข
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reject Booking Modal */}
+      <AnimatePresence>
+        {rejectingBooking && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setRejectingBooking(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            >
+              <div className="bg-red-600 p-4 sm:p-6 text-white sticky top-0 z-10">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-bold">ปฏิเสธคำขอจองรถ</h3>
+                    <p className="text-red-100 text-xs sm:text-sm mt-1">ผู้ขอ: {rejectingBooking.userName}</p>
+                  </div>
+                  <button onClick={() => setRejectingBooking(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                    <XCircle className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-5 sm:p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block font-sans">ระบุเหตุผลการปฏิเสธ (จำเป็น)</label>
+                  <textarea 
+                    value={rejectComment} 
+                    onChange={(e) => setRejectComment(e.target.value)}
+                    placeholder="เช่น รถคันนี้ไม่ว่าง หรือพนักงานขับรถไม่พร้อมปฏิบัติงานในวันดังกล่าว..." 
+                    required 
+                    rows={4}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none font-sans text-slate-700" 
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setRejectingBooking(null)}
+                    className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors font-sans"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (!rejectComment.trim()) {
+                        alert('กรุณากรอกเหตุผลการปฏิเสธด้วยครับ');
+                        return;
+                      }
+                      handleUpdateBookingStatus(rejectingBooking.id, 'rejected', rejectComment);
+                      setRejectingBooking(null);
+                    }}
+                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg active:scale-[0.98] font-sans"
+                  >
+                    ยืนยันการปฏิเสธ
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
