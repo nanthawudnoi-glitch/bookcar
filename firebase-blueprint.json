@@ -57,6 +57,7 @@
         "destination": { "type": "string" },
         "passengers": { "type": "string", "description": "Names of travel companions" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "cancelled", "completed"] },
+        "requesterName": { "type": "string", "description": "Name of the requested person" },
         "createdAt": { "type": "string", "format": "date-time" },
         "adminComment": { "type": "string" }
       },
