@@ -6,7 +6,8 @@ import {
   User, 
   Car,
   ChevronRight,
-  Info
+  Info,
+  XCircle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { format, isSameDay, startOfDay, addDays, isAfter, isBefore } from 'date-fns';
@@ -18,10 +19,38 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function safeToDate(val: any): Date {
+  if (!val) return new Date();
+  if (typeof val.toDate === 'function') return val.toDate();
+  if (val instanceof Date) return val;
+  if (val.seconds !== undefined) return new Date(val.seconds * 1000 + (val.nanoseconds || 0) / 1000000);
+  return new Date(val);
+}
+
+function getDurationText(startVal: any, endVal: any): string {
+  const start = safeToDate(startVal);
+  const end = safeToDate(endVal);
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs <= 0) return '0 นาที';
+  
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const days = Math.floor(diffMins / (24 * 60));
+  const hours = Math.floor((diffMins % (24 * 60)) / 60);
+  const mins = diffMins % 60;
+  
+  let parts = [];
+  if (days > 0) parts.push(`${days} วัน`);
+  if (hours > 0) parts.push(`${hours} ชั่วโมง`);
+  if (mins > 0 || parts.length === 0) parts.push(`${mins} นาที`);
+  
+  return parts.join(' ');
+}
+
 interface Booking {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   vehicleId: string;
   vehicleName: string;
   driverId?: string;
@@ -32,6 +61,7 @@ interface Booking {
   destination: string;
   passengers?: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
+  adminComment?: string;
 }
 
 interface ScheduleViewProps {
@@ -40,6 +70,7 @@ interface ScheduleViewProps {
   vehicles?: any[];
   drivers?: any[];
   onUpdateBooking?: (bookingId: string, status: string, comment?: string, driverId?: string, vehicleId?: string) => Promise<void>;
+  onCancelByAdmin?: (booking: Booking) => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({ 
@@ -47,7 +78,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   isAdmin, 
   vehicles = [], 
   drivers = [], 
-  onUpdateBooking 
+  onUpdateBooking,
+  onCancelByAdmin
 }) => {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [tempDriverId, setTempDriverId] = React.useState<string>("");
@@ -136,9 +168,18 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                               )}>
                                 {booking.status === 'approved' ? 'อนุมัติแล้ว' : 'เสร็จสิ้น'}
                               </div>
-                              <div className="flex items-center gap-1.5 text-slate-500 text-sm font-medium">
-                                <Clock className="w-3.5 h-3.5" />
-                                {format(booking.startTime?.toDate ? booking.startTime.toDate() : new Date(booking.startTime), 'HH:mm')} - {format(booking.endTime?.toDate ? booking.endTime.toDate() : new Date(booking.endTime), 'HH:mm')} น.
+                              <div className="flex items-center gap-2 flex-wrap text-slate-500 text-sm font-medium">
+                                <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                                <span className="font-semibold text-slate-700">
+                                  {format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.
+                                </span>
+                                <span className="text-slate-400">ถึง</span>
+                                <span className="font-semibold text-slate-700">
+                                  {format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.
+                                </span>
+                                <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-bold ml-1 border border-indigo-100">
+                                  ({getDurationText(booking.startTime, booking.endTime)})
+                                </span>
                               </div>
                             </div>
 
@@ -231,16 +272,27 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                     </div>
                                   )}
                                   {isAdmin && booking.status === 'approved' && (
-                                    <button 
-                                      onClick={() => {
-                                        setEditingId(booking.id);
-                                        setTempDriverId(booking.driverId || "");
-                                        setTempVehicleId(booking.vehicleId);
-                                      }}
-                                      className="ml-auto text-xs font-bold text-indigo-600 hover:underline"
-                                    >
-                                      แก้ไขทรัพยากร
-                                    </button>
+                                    <div className="ml-auto flex items-center gap-3">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingId(booking.id);
+                                          setTempDriverId(booking.driverId || "");
+                                          setTempVehicleId(booking.vehicleId);
+                                        }}
+                                        className="text-xs font-bold text-indigo-600 hover:underline"
+                                      >
+                                        แก้ไขทรัพยากร
+                                      </button>
+                                      {onCancelByAdmin && (
+                                        <button 
+                                          onClick={() => onCancelByAdmin(booking)}
+                                          className="text-xs font-bold text-red-600 hover:text-red-800 hover:underline flex items-center gap-1"
+                                        >
+                                          <XCircle className="w-3.5 h-3.5" />
+                                          ยกเลิกคำขอใช้รถ
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                 </>
                               )}
