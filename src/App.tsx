@@ -44,9 +44,7 @@ import {
   TrendingUp,
   BarChart3,
   Edit2,
-  FileText,
-  Mail,
-  Send
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -93,7 +91,6 @@ interface Booking {
   id: string;
   userId: string;
   userName: string;
-  userEmail?: string;
   vehicleId: string;
   vehicleName: string;
   driverId?: string;
@@ -278,17 +275,6 @@ export default function App() {
 
   const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
   const [rejectComment, setRejectComment] = useState<string>("");
-  const [toastNotification, setToastNotification] = useState<{ message: string; type?: 'success' | 'info' | 'error' } | null>(null);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (toastNotification) {
-      const timer = setTimeout(() => {
-        setToastNotification(null);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastNotification]);
 
   // Auth Listener
   useEffect(() => {
@@ -453,7 +439,6 @@ export default function App() {
       const newBooking = {
         userId: user.uid,
         userName: user.displayName || profile?.displayName || 'User',
-        userEmail: user.email || profile?.email || '',
         vehicleId: selectedVehicle.id,
         vehicleName: `${selectedVehicle.model} (${selectedVehicle.plateNumber})`,
         startTime: Timestamp.fromDate(start),
@@ -547,57 +532,6 @@ export default function App() {
       }
 
       await updateDoc(doc(db, 'bookings', bookingId), updateData);
-
-      // Automated Email Notification Dispatch
-      const targetUser = allUsers.find(u => u.uid === currentBooking.userId);
-      const recipientEmail = currentBooking.userEmail || targetUser?.email || '';
-
-      if (recipientEmail && (status === 'approved' || status === 'cancelled' || status === 'rejected')) {
-        const finalVehicleName = vehicleId 
-          ? (vehicles.find(v => v.id === vehicleId)?.model || currentBooking.vehicleName)
-          : currentBooking.vehicleName;
-        
-        const finalDriverName = driverId !== undefined
-          ? (driverId ? drivers.find(d => d.id === driverId)?.name : undefined)
-          : currentBooking.driverName;
-
-        try {
-          const res = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: recipientEmail,
-              userName: currentBooking.userName,
-              action: status,
-              bookingDetails: {
-                vehicleName: finalVehicleName,
-                startTime: format(safeToDate(currentBooking.startTime), 'd MMM yy HH:mm', { locale: th }),
-                endTime: format(safeToDate(currentBooking.endTime), 'd MMM yy HH:mm', { locale: th }),
-                duration: getDurationText(currentBooking.startTime, currentBooking.endTime),
-                purpose: currentBooking.purpose,
-                destination: currentBooking.destination,
-                passengers: currentBooking.passengers,
-                driverName: finalDriverName,
-                adminComment: comment || ''
-              }
-            })
-          });
-
-          const result = await res.json();
-          if (result.success) {
-            setToastNotification({
-              message: status === 'approved' 
-                ? `อนุมัติคำขอแล้ว พร้อมส่งอีเมลแจ้งเตือนไปยัง ${recipientEmail} เรียบร้อย`
-                : status === 'cancelled'
-                ? `ยกเลิกคำขอแล้ว พร้อมส่งอีเมลแจ้งเตือนไปยัง ${recipientEmail} เรียบร้อย`
-                : `ปฏิเสธคำขอแล้ว พร้อมส่งอีเมลแจ้งเตือนไปยัง ${recipientEmail} เรียบร้อย`,
-              type: 'success'
-            });
-          }
-        } catch (emailErr) {
-          console.warn('Could not dispatch email notification:', emailErr);
-        }
-      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
     }
@@ -2024,31 +1958,6 @@ export default function App() {
               </div>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
-
-      {/* Floating Notification Toast */}
-      <AnimatePresence>
-        {toastNotification && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="fixed bottom-6 right-6 z-[120] max-w-md bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-800 flex items-center gap-3"
-          >
-            <div className="w-9 h-9 bg-indigo-500/20 text-indigo-400 rounded-xl flex items-center justify-center shrink-0">
-              <Mail className="w-5 h-5" />
-            </div>
-            <div className="flex-1 text-sm font-medium pr-2">
-              {toastNotification.message}
-            </div>
-            <button
-              onClick={() => setToastNotification(null)}
-              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
-            >
-              <XCircle className="w-4 h-4" />
-            </button>
-          </motion.div>
         )}
       </AnimatePresence>
     </div>

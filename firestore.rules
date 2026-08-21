@@ -93,13 +93,12 @@ service cloud.firestore {
 
     function isValidBooking(data) {
       return data.keys().hasAll(['userId', 'vehicleId', 'startTime', 'endTime', 'purpose', 'destination', 'status']) &&
-             data.keys().hasOnly(['userId', 'userName', 'userEmail', 'vehicleId', 'vehicleName', 'driverId', 'driverName', 'startTime', 'endTime', 'purpose', 'destination', 'passengers', 'requesterName', 'status', 'createdAt', 'adminComment', 'updatedAt']) &&
+             data.keys().hasOnly(['userId', 'userName', 'vehicleId', 'vehicleName', 'driverId', 'driverName', 'startTime', 'endTime', 'purpose', 'destination', 'passengers', 'requesterName', 'status', 'createdAt', 'adminComment', 'updatedAt']) &&
              data.status in ['pending', 'approved', 'rejected', 'cancelled', 'completed'] &&
              data.startTime is timestamp &&
              data.endTime is timestamp &&
              data.purpose is string && data.purpose.size() < 500 &&
              data.destination is string && data.destination.size() < 200 &&
-             (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() < 100)) &&
              (!('passengers' in data) || (data.passengers is string && data.passengers.size() < 500)) &&
              (!('requesterName' in data) || (data.requesterName is string && data.requesterName.size() < 100));
     }

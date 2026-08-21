@@ -50,7 +50,6 @@ interface Booking {
   id: string;
   userId: string;
   userName: string;
-  userEmail?: string;
   vehicleId: string;
   vehicleName: string;
   driverId?: string;
@@ -61,7 +60,6 @@ interface Booking {
   destination: string;
   passengers?: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
-  adminComment?: string;
 }
 
 interface ScheduleViewProps {
