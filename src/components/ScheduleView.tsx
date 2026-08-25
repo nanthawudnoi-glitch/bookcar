@@ -6,8 +6,7 @@ import {
   User, 
   Car,
   ChevronRight,
-  Info,
-  XCircle
+  Info
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { format, isSameDay, startOfDay, addDays, isAfter, isBefore } from 'date-fns';
@@ -68,7 +67,6 @@ interface ScheduleViewProps {
   vehicles?: any[];
   drivers?: any[];
   onUpdateBooking?: (bookingId: string, status: string, comment?: string, driverId?: string, vehicleId?: string) => Promise<void>;
-  onCancelByAdmin?: (booking: Booking) => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({ 
@@ -76,8 +74,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   isAdmin, 
   vehicles = [], 
   drivers = [], 
-  onUpdateBooking,
-  onCancelByAdmin
+  onUpdateBooking 
 }) => {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [tempDriverId, setTempDriverId] = React.useState<string>("");
@@ -270,27 +267,16 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                     </div>
                                   )}
                                   {isAdmin && booking.status === 'approved' && (
-                                    <div className="ml-auto flex items-center gap-3">
-                                      <button 
-                                        onClick={() => {
-                                          setEditingId(booking.id);
-                                          setTempDriverId(booking.driverId || "");
-                                          setTempVehicleId(booking.vehicleId);
-                                        }}
-                                        className="text-xs font-bold text-indigo-600 hover:underline"
-                                      >
-                                        แก้ไขทรัพยากร
-                                      </button>
-                                      {onCancelByAdmin && (
-                                        <button 
-                                          onClick={() => onCancelByAdmin(booking)}
-                                          className="text-xs font-bold text-red-600 hover:text-red-800 hover:underline flex items-center gap-1"
-                                        >
-                                          <XCircle className="w-3.5 h-3.5" />
-                                          ยกเลิกคำขอใช้รถ
-                                        </button>
-                                      )}
-                                    </div>
+                                    <button 
+                                      onClick={() => {
+                                        setEditingId(booking.id);
+                                        setTempDriverId(booking.driverId || "");
+                                        setTempVehicleId(booking.vehicleId);
+                                      }}
+                                      className="ml-auto text-xs font-bold text-indigo-600 hover:underline"
+                                    >
+                                      แก้ไขทรัพยากร
+                                    </button>
                                   )}
                                 </>
                               )}

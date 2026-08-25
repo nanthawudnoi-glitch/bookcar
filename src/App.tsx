@@ -255,7 +255,6 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'approvals' | 'bookings' | 'vehicles' | 'admin' | 'summary' | 'schedule' | 'reports'>('schedule');
   const [adminSubTab, setAdminSubTab] = useState<'vehicles' | 'drivers' | 'users'>('vehicles');
-  const [approvalFilter, setApprovalFilter] = useState<'pending' | 'approved'>('pending');
   
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -950,228 +949,123 @@ export default function App() {
               exit={{ opacity: 0, x: 10 }}
               className="space-y-6"
             >
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">จัดการคำขอใช้รถ</h2>
-                  <p className="text-slate-500 text-sm sm:text-base">ตรวจสอบ อนุมัติ และยกเลิกรายการจองรถยนต์ราชการ</p>
-                </div>
-                
-                {/* Sub tabs for Pending vs Approved */}
-                <div className="flex bg-slate-100 p-1 rounded-xl shrink-0">
-                  <button
-                    onClick={() => setApprovalFilter('pending')}
-                    className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap",
-                      approvalFilter === 'pending' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-                    )}
-                  >
-                    รออนุมัติ ({bookings.filter(b => b.status === 'pending').length})
-                  </button>
-                  <button
-                    onClick={() => setApprovalFilter('approved')}
-                    className={cn(
-                      "px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap",
-                      approvalFilter === 'approved' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-                    )}
-                  >
-                    อนุมัติแล้ว ({bookings.filter(b => b.status === 'approved').length})
-                  </button>
-                </div>
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-slate-900">คำขอรออนุมัติ</h2>
+                <p className="text-slate-500">ตรวจสอบและอนุมัติคำขอใช้รถยนต์ราชการ</p>
               </div>
               
               <div className="grid gap-4">
-                {approvalFilter === 'pending' ? (
-                  <>
-                    {bookings.filter(b => b.status === 'pending').map(booking => (
-                      <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-                        <div className="flex flex-wrap justify-between gap-4 mb-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold">
-                              {booking.userName[0]}
-                            </div>
-                            <div>
-                              <h3 className="font-bold text-slate-900">{booking.userName}</h3>
-                              <p className="text-sm text-slate-500">ขอใช้รถ: {booking.vehicleName}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">จุดหมาย</p>
-                            <p className="font-bold text-slate-900">{booking.destination}</p>
-                          </div>
+                {bookings.filter(b => b.status === 'pending').map(booking => (
+                  <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <div className="flex flex-wrap justify-between gap-4 mb-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold">
+                          {booking.userName[0]}
                         </div>
-
-                        <div className="bg-slate-50 rounded-xl p-4 grid sm:grid-cols-2 gap-4 mb-6">
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาเริ่มเดินทาง</span>
-                              <span className="font-semibold text-slate-700">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาสิ้นสุด/กลับถึง</span>
-                              <span className="font-semibold text-slate-700">{format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 sm:col-span-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/40">
-                            <Calendar className="w-4 h-4 text-indigo-500 animate-pulse" />
-                            <div className="text-sm">
-                              <span className="text-indigo-500 text-xs font-semibold mr-2">ระยะเวลาขอใช้รถ:</span>
-                              <span className="font-bold text-indigo-700">{getDurationText(booking.startTime, booking.endTime)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 sm:col-span-2">
-                            <Info className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 font-semibold mr-1">วัตถุประสงค์:</span>
-                              <span className="font-semibold text-slate-700">{booking.purpose}</span>
-                            </div>
-                          </div>
-                          {booking.passengers && (
-                            <div className="flex items-center gap-3 sm:col-span-2">
-                              <User className="w-4 h-4 text-slate-400" />
-                              <div className="text-sm">
-                                <span className="text-slate-400 font-semibold mr-1">ผู้ร่วมเดินทาง: </span>
-                                <span className="font-semibold text-slate-700">{booking.passengers}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="grid sm:grid-cols-2 gap-4 mb-6">
-                          <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">เปลี่ยนรถยนต์ (ถ้าจำเป็น)</label>
-                            <select 
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                              onChange={(e) => setSelectedVehicleId(e.target.value)}
-                              value={selectedVehicleId || booking.vehicleId}
-                            >
-                              {vehicles.map(v => (
-                                <option key={v.id} value={v.id}>{v.model} ({v.plateNumber}) - {v.status === 'available' ? 'ว่าง' : v.status}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">มอบหมายพนักงานขับรถ</label>
-                            <select 
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                              onChange={(e) => setSelectedDriverId(e.target.value)}
-                              value={selectedDriverId}
-                            >
-                              <option value="">-- ไม่ระบุพนักงานขับรถ --</option>
-                              {drivers.filter(d => d.status === 'available').map(d => (
-                                <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="flex gap-3">
-                          <button 
-                            onClick={() => {
-                              handleUpdateBookingStatus(booking.id, 'approved', '', selectedDriverId, selectedVehicleId);
-                              setSelectedDriverId("");
-                              setSelectedVehicleId("");
-                            }}
-                            className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
-                          >
-                            <CheckCircle className="w-4 h-4" /> อนุมัติ
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setRejectingBooking(booking);
-                              setRejectComment("");
-                            }}
-                            className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
-                          >
-                            <XCircle className="w-4 h-4" /> ปฏิเสธ
-                          </button>
+                        <div>
+                          <h3 className="font-bold text-slate-900">{booking.userName}</h3>
+                          <p className="text-sm text-slate-500">ขอใช้รถ: {booking.vehicleName}</p>
                         </div>
                       </div>
-                    ))}
-                    {bookings.filter(b => b.status === 'pending').length === 0 && (
-                      <p className="text-slate-400 text-center py-8 bg-white rounded-2xl border border-slate-100 border-dashed">ไม่มีคำขอรออนุมัติ</p>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {bookings.filter(b => b.status === 'approved').map(booking => (
-                      <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-red-100 transition-colors">
-                        <div className="flex flex-wrap justify-between gap-4 mb-6">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 font-bold">
-                              {booking.userName[0]}
-                            </div>
-                            <div>
-                              <h3 className="font-bold text-slate-900">{booking.userName}</h3>
-                              <p className="text-sm text-slate-500">อนุมัติแล้ว: {booking.vehicleName}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">จุดหมาย</p>
-                            <p className="font-bold text-slate-900">{booking.destination}</p>
-                          </div>
-                        </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">จุดหมาย</p>
+                        <p className="font-bold text-slate-900">{booking.destination}</p>
+                      </div>
+                    </div>
 
-                        <div className="bg-slate-50 rounded-xl p-4 grid sm:grid-cols-2 gap-4 mb-6">
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาเริ่มเดินทาง</span>
-                              <span className="font-semibold text-slate-700">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาสิ้นสุด/กลับถึง</span>
-                              <span className="font-semibold text-slate-700">{format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 sm:col-span-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/40">
-                            <Calendar className="w-4 h-4 text-indigo-500" />
-                            <div className="text-sm">
-                              <span className="text-indigo-500 text-xs font-semibold mr-2">ระยะเวลาขอใช้รถ:</span>
-                              <span className="font-bold text-indigo-700">{getDurationText(booking.startTime, booking.endTime)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 sm:col-span-2">
-                            <Info className="w-4 h-4 text-slate-400" />
-                            <div className="text-sm">
-                              <span className="text-slate-400 font-semibold mr-1">วัตถุประสงค์:</span>
-                              <span className="font-semibold text-slate-700">{booking.purpose}</span>
-                            </div>
-                          </div>
-                          {booking.driverName && (
-                            <div className="flex items-center gap-3 sm:col-span-2">
-                              <User className="w-4 h-4 text-emerald-500" />
-                              <div className="text-sm">
-                                <span className="text-emerald-600 font-bold mr-1">พนักงานขับรถปฏิบัติงาน:</span>
-                                <span className="font-semibold text-slate-700">{booking.driverName}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex">
-                          <button 
-                            onClick={() => {
-                              setRejectingBooking(booking);
-                              setRejectComment("");
-                            }}
-                            className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
-                          >
-                            <XCircle className="w-4 h-4" /> ยกเลิกคำขอใช้รถยนต์นี้ (ระบุเหตุผลและแจ้งเตือนผู้ใช้)
-                          </button>
+                    <div className="bg-slate-50 rounded-xl p-4 grid sm:grid-cols-2 gap-4 mb-6">
+                      <div className="flex items-center gap-3">
+                        <Clock className="w-4 h-4 text-slate-400" />
+                        <div className="text-sm">
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาเริ่มเดินทาง</span>
+                          <span className="font-semibold text-slate-700">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
                         </div>
                       </div>
-                    ))}
-                    {bookings.filter(b => b.status === 'approved').length === 0 && (
-                      <p className="text-slate-400 text-center py-8 bg-white rounded-2xl border border-slate-100 border-dashed">ไม่มีรายการคำขอที่อนุมัติแล้ว</p>
-                    )}
-                  </>
+                      <div className="flex items-center gap-3">
+                        <Clock className="w-4 h-4 text-slate-400" />
+                        <div className="text-sm">
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาสิ้นสุด/กลับถึง</span>
+                          <span className="font-semibold text-slate-700">{format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 sm:col-span-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/40">
+                        <Calendar className="w-4 h-4 text-indigo-500 animate-pulse" />
+                        <div className="text-sm">
+                          <span className="text-indigo-500 text-xs font-semibold mr-2">ระยะเวลาขอใช้รถ:</span>
+                          <span className="font-bold text-indigo-700">{getDurationText(booking.startTime, booking.endTime)}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 sm:col-span-2">
+                        <Info className="w-4 h-4 text-slate-400" />
+                        <div className="text-sm">
+                          <span className="text-slate-400 font-semibold mr-1">วัตถุประสงค์:</span>
+                          <span className="font-semibold text-slate-700">{booking.purpose}</span>
+                        </div>
+                      </div>
+                      {booking.passengers && (
+                        <div className="flex items-center gap-3 sm:col-span-2">
+                          <User className="w-4 h-4 text-slate-400" />
+                          <div className="text-sm">
+                            <span className="text-slate-400 font-semibold mr-1">ผู้ร่วมเดินทาง: </span>
+                            <span className="font-semibold text-slate-700">{booking.passengers}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">เปลี่ยนรถยนต์ (ถ้าจำเป็น)</label>
+                        <select 
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          onChange={(e) => setSelectedVehicleId(e.target.value)}
+                          value={selectedVehicleId || booking.vehicleId}
+                        >
+                          {vehicles.map(v => (
+                            <option key={v.id} value={v.id}>{v.model} ({v.plateNumber}) - {v.status === 'available' ? 'ว่าง' : v.status}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">มอบหมายพนักงานขับรถ</label>
+                        <select 
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                          onChange={(e) => setSelectedDriverId(e.target.value)}
+                          value={selectedDriverId}
+                        >
+                          <option value="">-- ไม่ระบุพนักงานขับรถ --</option>
+                          {drivers.filter(d => d.status === 'available').map(d => (
+                            <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => {
+                          handleUpdateBookingStatus(booking.id, 'approved', '', selectedDriverId, selectedVehicleId);
+                          setSelectedDriverId("");
+                          setSelectedVehicleId("");
+                        }}
+                        className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
+                      >
+                        <CheckCircle className="w-4 h-4" /> อนุมัติ
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setRejectingBooking(booking);
+                          setRejectComment("");
+                        }}
+                        className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
+                      >
+                        <XCircle className="w-4 h-4" /> ปฏิเสธ
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {bookings.filter(b => b.status === 'pending').length === 0 && (
+                  <p className="text-slate-400 text-center py-8 bg-white rounded-2xl border border-slate-100 border-dashed">ไม่มีคำขอรออนุมัติ</p>
                 )}
               </div>
             </motion.div>
@@ -1228,10 +1122,6 @@ export default function App() {
                 vehicles={vehicles}
                 drivers={drivers}
                 onUpdateBooking={handleUpdateBookingStatus}
-                onCancelByAdmin={(booking) => {
-                  setRejectingBooking(booking);
-                  setRejectComment("");
-                }}
               />
             </motion.div>
           )}
@@ -1254,34 +1144,6 @@ export default function App() {
                   จองรถใหม่
                 </button>
               </div>
-
-              {/* Notification Banner for Cancelled/Rejected Bookings with Admin Comments */}
-              {myBookings.filter(b => (b.status === 'cancelled' || b.status === 'rejected') && b.adminComment).length > 0 && (
-                <div className="space-y-3">
-                  {myBookings.filter(b => (b.status === 'cancelled' || b.status === 'rejected') && b.adminComment).map(booking => (
-                    <motion.div 
-                      key={`alert-${booking.id}`}
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 text-red-800 shadow-sm"
-                    >
-                      <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                      <div className="flex-1 text-sm">
-                        <span className="font-bold block">🚨 รายการจองได้รับการยกเลิกโดยผู้ดูแลระบบ</span>
-                        <span className="block text-xs text-red-600 mt-1">
-                          รถยนต์: <span className="font-semibold">{booking.vehicleName}</span> | ปลายทาง: <span className="font-semibold">{booking.destination}</span>
-                        </span>
-                        <span className="block text-xs text-red-600">
-                          วันเดินทาง: <span className="font-semibold">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                        </span>
-                        <div className="mt-2 bg-white/60 p-2.5 rounded-lg border border-red-100 text-xs font-medium text-red-900">
-                          <span className="font-bold text-red-700">เหตุผลการยกเลิก:</span> {booking.adminComment}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
 
               {myBookings.length === 0 ? (
                 <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 border-dashed">
@@ -1892,15 +1754,11 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
             >
-              <div className={cn("p-4 sm:p-6 text-white sticky top-0 z-10", rejectingBooking.status === 'approved' ? "bg-amber-600" : "bg-red-600")}>
+              <div className="bg-red-600 p-4 sm:p-6 text-white sticky top-0 z-10">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-lg sm:text-xl font-bold">
-                      {rejectingBooking.status === 'approved' ? 'ยกเลิกคำขอจองรถ (อนุมัติแล้ว)' : 'ปฏิเสธคำขอจองรถ'}
-                    </h3>
-                    <p className={cn("text-xs sm:text-sm mt-1", rejectingBooking.status === 'approved' ? "text-amber-100" : "text-red-100")}>
-                      ผู้ขอ: {rejectingBooking.userName}
-                    </p>
+                    <h3 className="text-lg sm:text-xl font-bold">ปฏิเสธคำขอจองรถ</h3>
+                    <p className="text-red-100 text-xs sm:text-sm mt-1">ผู้ขอ: {rejectingBooking.userName}</p>
                   </div>
                   <button onClick={() => setRejectingBooking(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                     <XCircle className="w-6 h-6" />
@@ -1910,22 +1768,14 @@ export default function App() {
               
               <div className="p-5 sm:p-8 space-y-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block font-sans">
-                    {rejectingBooking.status === 'approved' ? 'ระบุเหตุผลในการยกเลิก (จำเป็นเพื่อส่งแจ้งเตือน)' : 'ระบุเหตุผลการปฏิเสธ (จำเป็น)'}
-                  </label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block font-sans">ระบุเหตุผลการปฏิเสธ (จำเป็น)</label>
                   <textarea 
                     value={rejectComment} 
                     onChange={(e) => setRejectComment(e.target.value)}
-                    placeholder={rejectingBooking.status === 'approved' 
-                      ? "ระบุเหตุผลในการยกเลิก เพื่อส่งแจ้งเตือนให้กับผู้ขอใช้รถทราบ..." 
-                      : "เช่น รถคันนี้ไม่ว่าง หรือพนักงานขับรถไม่พร้อมปฏิบัติงานในวันดังกล่าว..."
-                    } 
+                    placeholder="เช่น รถคันนี้ไม่ว่าง หรือพนักงานขับรถไม่พร้อมปฏิบัติงานในวันดังกล่าว..." 
                     required 
                     rows={4}
-                    className={cn(
-                      "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none resize-none font-sans text-slate-700 focus:ring-2", 
-                      rejectingBooking.status === 'approved' ? "focus:ring-amber-500 focus:border-amber-500" : "focus:ring-red-500 focus:border-red-500"
-                    )}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none font-sans text-slate-700" 
                   />
                 </div>
 
@@ -1939,20 +1789,15 @@ export default function App() {
                   <button 
                     onClick={() => {
                       if (!rejectComment.trim()) {
-                        alert(rejectingBooking.status === 'approved' ? 'กรุณากรอกเหตุผลการยกเลิกด้วยครับ' : 'กรุณากรอกเหตุผลการปฏิเสธด้วยครับ');
+                        alert('กรุณากรอกเหตุผลการปฏิเสธด้วยครับ');
                         return;
                       }
-                      // For approved bookings, cancel them. Otherwise, reject them.
-                      const targetStatus = rejectingBooking.status === 'approved' ? 'cancelled' : 'rejected';
-                      handleUpdateBookingStatus(rejectingBooking.id, targetStatus, rejectComment);
+                      handleUpdateBookingStatus(rejectingBooking.id, 'rejected', rejectComment);
                       setRejectingBooking(null);
                     }}
-                    className={cn(
-                      "flex-1 text-white py-3 rounded-xl font-bold transition-colors shadow-lg active:scale-[0.98] font-sans",
-                      rejectingBooking.status === 'approved' ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700"
-                    )}
+                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg active:scale-[0.98] font-sans"
                   >
-                    {rejectingBooking.status === 'approved' ? 'ยืนยันการยกเลิก' : 'ยืนยันการปฏิเสธ'}
+                    ยืนยันการปฏิเสธ
                   </button>
                 </div>
               </div>
