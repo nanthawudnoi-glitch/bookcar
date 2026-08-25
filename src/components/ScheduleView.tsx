@@ -6,7 +6,9 @@ import {
   User, 
   Car,
   ChevronRight,
-  Info
+  Info,
+  XCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { format, isSameDay, startOfDay, addDays, isAfter, isBefore } from 'date-fns';
@@ -49,6 +51,7 @@ interface Booking {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   vehicleId: string;
   vehicleName: string;
   driverId?: string;
@@ -58,7 +61,10 @@ interface Booking {
   purpose: string;
   destination: string;
   passengers?: string;
+  requesterName?: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
+  cancellationReason?: string;
+  adminComment?: string;
 }
 
 interface ScheduleViewProps {
@@ -67,6 +73,7 @@ interface ScheduleViewProps {
   vehicles?: any[];
   drivers?: any[];
   onUpdateBooking?: (bookingId: string, status: string, comment?: string, driverId?: string, vehicleId?: string) => Promise<void>;
+  onCancelBooking?: (booking: Booking) => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({ 
@@ -74,7 +81,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   isAdmin, 
   vehicles = [], 
   drivers = [], 
-  onUpdateBooking 
+  onUpdateBooking,
+  onCancelBooking
 }) => {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [tempDriverId, setTempDriverId] = React.useState<string>("");
@@ -267,16 +275,28 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                                     </div>
                                   )}
                                   {isAdmin && booking.status === 'approved' && (
-                                    <button 
-                                      onClick={() => {
-                                        setEditingId(booking.id);
-                                        setTempDriverId(booking.driverId || "");
-                                        setTempVehicleId(booking.vehicleId);
-                                      }}
-                                      className="ml-auto text-xs font-bold text-indigo-600 hover:underline"
-                                    >
-                                      แก้ไขทรัพยากร
-                                    </button>
+                                    <div className="ml-auto flex items-center gap-3">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingId(booking.id);
+                                          setTempDriverId(booking.driverId || "");
+                                          setTempVehicleId(booking.vehicleId);
+                                        }}
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
+                                      >
+                                        แก้ไขทรัพยากร
+                                      </button>
+                                      {onCancelBooking && (
+                                        <button 
+                                          onClick={() => onCancelBooking(booking)}
+                                          className="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                          title="ยกเลิกคำขอนี้ แม้ว่าจะอนุมัติไปแล้วก็ตาม"
+                                        >
+                                          <XCircle className="w-3.5 h-3.5" />
+                                          ยกเลิกคำขอ
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                 </>
                               )}

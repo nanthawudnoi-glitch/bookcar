@@ -58,8 +58,13 @@
         "passengers": { "type": "string", "description": "Names of travel companions" },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "cancelled", "completed"] },
         "requesterName": { "type": "string", "description": "Name of the requested person" },
+        "userEmail": { "type": "string", "description": "Email of the requester" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "adminComment": { "type": "string" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "adminComment": { "type": "string" },
+        "cancellationReason": { "type": "string" },
+        "cancelledAt": { "type": "string", "format": "date-time" },
+        "cancelledBy": { "type": "string" }
       },
       "required": ["userId", "vehicleId", "startTime", "endTime", "purpose", "destination", "status"]
     }

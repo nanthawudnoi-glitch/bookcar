@@ -1,5 +1,6 @@
 {
   "name": "TTC Smart Fleet: ระบบจองรถยนต์ราชการ",
   "description": "ระบบบริหารจัดการและจองคิวรถยนต์ราชการอัจฉริยะ วิทยาลัยเทคนิคตรัง",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

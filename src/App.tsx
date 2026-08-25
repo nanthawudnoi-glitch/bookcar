@@ -44,7 +44,11 @@ import {
   TrendingUp,
   BarChart3,
   Edit2,
-  FileText
+  FileText,
+  Mail,
+  Send,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -56,6 +60,7 @@ import { auth, db, signIn, logOut } from './firebase';
 import { SummaryView } from './components/SummaryView';
 import { ScheduleView } from './components/ScheduleView';
 import { ReportView } from './components/ReportView';
+import { EmailNotificationModal, type EmailData } from './components/EmailNotificationModal';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -91,6 +96,7 @@ interface Booking {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   vehicleId: string;
   vehicleName: string;
   driverId?: string;
@@ -103,7 +109,11 @@ interface Booking {
   requesterName?: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'completed';
   createdAt: any;
+  updatedAt?: any;
   adminComment?: string;
+  cancellationReason?: string;
+  cancelledAt?: any;
+  cancelledBy?: string;
 }
 
 function safeToDate(val: any): Date {
@@ -275,6 +285,24 @@ export default function App() {
   const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
   const [rejectComment, setRejectComment] = useState<string>("");
 
+  const [approvalsSubTab, setApprovalsSubTab] = useState<'pending' | 'approved'>('pending');
+
+  const [cancellingBooking, setCancellingBooking] = useState<Booking | null>(null);
+  const [cancellationReason, setCancellationReason] = useState<string>("");
+
+  const [emailModalData, setEmailModalData] = useState<EmailData | null>(null);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState<boolean>(false);
+
+  // Helper to find recipient email for a booking
+  const getBookingEmail = (b: Booking): string => {
+    if (b.userEmail) return b.userEmail;
+    const matchUid = allUsers.find(u => u.uid === b.userId);
+    if (matchUid?.email) return matchUid.email;
+    const matchName = allUsers.find(u => u.displayName === b.userName || u.displayName === b.requesterName);
+    if (matchName?.email) return matchName.email;
+    return '';
+  };
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -438,6 +466,7 @@ export default function App() {
       const newBooking = {
         userId: user.uid,
         userName: user.displayName || profile?.displayName || 'User',
+        userEmail: user.email || '',
         vehicleId: selectedVehicle.id,
         vehicleName: `${selectedVehicle.model} (${selectedVehicle.plateNumber})`,
         startTime: Timestamp.fromDate(start),
@@ -531,6 +560,65 @@ export default function App() {
       }
 
       await updateDoc(doc(db, 'bookings', bookingId), updateData);
+
+      // Trigger Email notification modal on Approval
+      if (status === 'approved') {
+        const assignedDriver = drivers.find(d => d.id === (driverId !== undefined ? driverId : currentBooking.driverId));
+        const assignedVehicle = vehicles.find(v => v.id === targetVehicleId);
+        const recipientEmail = getBookingEmail(currentBooking);
+
+        setEmailModalData({
+          type: 'approved',
+          recipientEmail,
+          recipientName: currentBooking.requesterName || currentBooking.userName,
+          booking: {
+            ...currentBooking,
+            status: 'approved',
+            vehicleName: assignedVehicle ? `${assignedVehicle.model} (${assignedVehicle.plateNumber})` : currentBooking.vehicleName,
+            driverName: assignedDriver ? assignedDriver.name : (driverId === "" ? undefined : currentBooking.driverName),
+            adminComment: comment || currentBooking.adminComment
+          },
+          adminName: profile?.displayName || user?.displayName || 'ผู้ดูแลระบบ'
+        });
+        setIsEmailModalOpen(true);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
+    }
+  };
+
+  const handleAdminCancelBooking = async (bookingId: string, reason: string) => {
+    try {
+      const currentBooking = bookings.find(b => b.id === bookingId);
+      if (!currentBooking) return;
+
+      const trimmedReason = reason.trim() || 'มีความจำเป็นต้องปรับเปลี่ยนตารางการใช้รถยนต์ราชการ';
+
+      await updateDoc(doc(db, 'bookings', bookingId), { 
+        status: 'cancelled',
+        cancellationReason: trimmedReason,
+        adminComment: `[ยกเลิกโดยผู้ดูแลระบบ]: ${trimmedReason}`,
+        cancelledBy: profile?.displayName || user?.displayName || 'ผู้ดูแลระบบ',
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      const recipientEmail = getBookingEmail(currentBooking);
+      setEmailModalData({
+        type: 'cancelled',
+        recipientEmail,
+        recipientName: currentBooking.requesterName || currentBooking.userName,
+        booking: {
+          ...currentBooking,
+          status: 'cancelled',
+          cancellationReason: trimmedReason
+        },
+        reason: trimmedReason,
+        adminName: profile?.displayName || user?.displayName || 'ผู้ดูแลระบบ'
+      });
+      setIsEmailModalOpen(true);
+      setCancellingBooking(null);
+      setCancellationReason("");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `bookings/${bookingId}`);
     }
@@ -949,125 +1037,261 @@ export default function App() {
               exit={{ opacity: 0, x: 10 }}
               className="space-y-6"
             >
-              <div className="mb-8">
-                <h2 className="text-2xl font-bold text-slate-900">คำขอรออนุมัติ</h2>
-                <p className="text-slate-500">ตรวจสอบและอนุมัติคำขอใช้รถยนต์ราชการ</p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">จัดการและอนุมัติคำขอใช้รถ</h2>
+                  <p className="text-slate-500">ตรวจสอบ อนุมัติ หรือยกเลิกคำขอใช้รถยนต์ราชการ พร้อมแจ้งเตือนทางอีเมล</p>
+                </div>
+
+                {/* Sub-tab Selector */}
+                <div className="flex bg-slate-200/70 p-1 rounded-2xl self-start sm:self-auto border border-slate-300/40">
+                  <button
+                    onClick={() => setApprovalsSubTab('pending')}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2",
+                      approvalsSubTab === 'pending'
+                        ? "bg-white text-indigo-700 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    )}
+                  >
+                    <span>รออนุมัติ</span>
+                    <span className={cn(
+                      "px-2 py-0.5 text-xs rounded-full",
+                      approvalsSubTab === 'pending' ? "bg-indigo-100 text-indigo-700 font-bold" : "bg-slate-300/80 text-slate-700"
+                    )}>
+                      {bookings.filter(b => b.status === 'pending').length}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setApprovalsSubTab('approved')}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2",
+                      approvalsSubTab === 'approved'
+                        ? "bg-white text-emerald-700 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    )}
+                  >
+                    <span>อนุมัติแล้ว (จัดการ/ยกเลิก)</span>
+                    <span className={cn(
+                      "px-2 py-0.5 text-xs rounded-full",
+                      approvalsSubTab === 'approved' ? "bg-emerald-100 text-emerald-700 font-bold" : "bg-slate-300/80 text-slate-700"
+                    )}>
+                      {bookings.filter(b => b.status === 'approved').length}
+                    </span>
+                  </button>
+                </div>
               </div>
               
-              <div className="grid gap-4">
-                {bookings.filter(b => b.status === 'pending').map(booking => (
-                  <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-                    <div className="flex flex-wrap justify-between gap-4 mb-6">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold">
-                          {booking.userName[0]}
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-slate-900">{booking.userName}</h3>
-                          <p className="text-sm text-slate-500">ขอใช้รถ: {booking.vehicleName}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">จุดหมาย</p>
-                        <p className="font-bold text-slate-900">{booking.destination}</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-4 grid sm:grid-cols-2 gap-4 mb-6">
-                      <div className="flex items-center gap-3">
-                        <Clock className="w-4 h-4 text-slate-400" />
-                        <div className="text-sm">
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาเริ่มเดินทาง</span>
-                          <span className="font-semibold text-slate-700">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Clock className="w-4 h-4 text-slate-400" />
-                        <div className="text-sm">
-                          <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาสิ้นสุด/กลับถึง</span>
-                          <span className="font-semibold text-slate-700">{format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 sm:col-span-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/40">
-                        <Calendar className="w-4 h-4 text-indigo-500 animate-pulse" />
-                        <div className="text-sm">
-                          <span className="text-indigo-500 text-xs font-semibold mr-2">ระยะเวลาขอใช้รถ:</span>
-                          <span className="font-bold text-indigo-700">{getDurationText(booking.startTime, booking.endTime)}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 sm:col-span-2">
-                        <Info className="w-4 h-4 text-slate-400" />
-                        <div className="text-sm">
-                          <span className="text-slate-400 font-semibold mr-1">วัตถุประสงค์:</span>
-                          <span className="font-semibold text-slate-700">{booking.purpose}</span>
-                        </div>
-                      </div>
-                      {booking.passengers && (
-                        <div className="flex items-center gap-3 sm:col-span-2">
-                          <User className="w-4 h-4 text-slate-400" />
-                          <div className="text-sm">
-                            <span className="text-slate-400 font-semibold mr-1">ผู้ร่วมเดินทาง: </span>
-                            <span className="font-semibold text-slate-700">{booking.passengers}</span>
+              {approvalsSubTab === 'pending' ? (
+                <div className="grid gap-4">
+                  {bookings.filter(b => b.status === 'pending').map(booking => (
+                    <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                      <div className="flex flex-wrap justify-between gap-4 mb-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold">
+                            {booking.userName[0]}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-slate-900">{booking.userName}</h3>
+                            <p className="text-sm text-slate-500">ขอใช้รถ: {booking.vehicleName}</p>
+                            {booking.userEmail && (
+                              <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                <Mail className="w-3 h-3 text-slate-400" /> {booking.userEmail}
+                              </p>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    <div className="grid sm:grid-cols-2 gap-4 mb-6">
-                      <div>
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">เปลี่ยนรถยนต์ (ถ้าจำเป็น)</label>
-                        <select 
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                          onChange={(e) => setSelectedVehicleId(e.target.value)}
-                          value={selectedVehicleId || booking.vehicleId}
-                        >
-                          {vehicles.map(v => (
-                            <option key={v.id} value={v.id}>{v.model} ({v.plateNumber}) - {v.status === 'available' ? 'ว่าง' : v.status}</option>
-                          ))}
-                        </select>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">จุดหมาย</p>
+                          <p className="font-bold text-slate-900">{booking.destination}</p>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">มอบหมายพนักงานขับรถ</label>
-                        <select 
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                          onChange={(e) => setSelectedDriverId(e.target.value)}
-                          value={selectedDriverId}
+
+                      <div className="bg-slate-50 rounded-xl p-4 grid sm:grid-cols-2 gap-4 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Clock className="w-4 h-4 text-slate-400" />
+                          <div className="text-sm">
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาเริ่มเดินทาง</span>
+                            <span className="font-semibold text-slate-700">{format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Clock className="w-4 h-4 text-slate-400" />
+                          <div className="text-sm">
+                            <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">วันเวลาสิ้นสุด/กลับถึง</span>
+                            <span className="font-semibold text-slate-700">{format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 sm:col-span-2 bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/40">
+                          <Calendar className="w-4 h-4 text-indigo-500 animate-pulse" />
+                          <div className="text-sm">
+                            <span className="text-indigo-500 text-xs font-semibold mr-2">ระยะเวลาขอใช้รถ:</span>
+                            <span className="font-bold text-indigo-700">{getDurationText(booking.startTime, booking.endTime)}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 sm:col-span-2">
+                          <Info className="w-4 h-4 text-slate-400" />
+                          <div className="text-sm">
+                            <span className="text-slate-400 font-semibold mr-1">วัตถุประสงค์:</span>
+                            <span className="font-semibold text-slate-700">{booking.purpose}</span>
+                          </div>
+                        </div>
+                        {booking.passengers && (
+                          <div className="flex items-center gap-3 sm:col-span-2">
+                            <User className="w-4 h-4 text-slate-400" />
+                            <div className="text-sm">
+                              <span className="text-slate-400 font-semibold mr-1">ผู้ร่วมเดินทาง: </span>
+                              <span className="font-semibold text-slate-700">{booking.passengers}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-4 mb-6">
+                        <div>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">เปลี่ยนรถยนต์ (ถ้าจำเป็น)</label>
+                          <select 
+                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            onChange={(e) => setSelectedVehicleId(e.target.value)}
+                            value={selectedVehicleId || booking.vehicleId}
+                          >
+                            {vehicles.map(v => (
+                              <option key={v.id} value={v.id}>{v.model} ({v.plateNumber}) - {v.status === 'available' ? 'ว่าง' : v.status}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">มอบหมายพนักงานขับรถ</label>
+                          <select 
+                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            onChange={(e) => setSelectedDriverId(e.target.value)}
+                            value={selectedDriverId}
+                          >
+                            <option value="">-- ไม่ระบุพนักงานขับรถ --</option>
+                            {drivers.filter(d => d.status === 'available').map(d => (
+                              <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button 
+                          onClick={() => {
+                            handleUpdateBookingStatus(booking.id, 'approved', '', selectedDriverId, selectedVehicleId);
+                            setSelectedDriverId("");
+                            setSelectedVehicleId("");
+                          }}
+                          className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors shadow-sm"
                         >
-                          <option value="">-- ไม่ระบุพนักงานขับรถ --</option>
-                          {drivers.filter(d => d.status === 'available').map(d => (
-                            <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
-                          ))}
-                        </select>
+                          <CheckCircle className="w-4 h-4" /> อนุมัติ & ส่งอีเมลแจ้ง
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setRejectingBooking(booking);
+                            setRejectComment("");
+                          }}
+                          className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
+                        >
+                          <XCircle className="w-4 h-4" /> ปฏิเสธคำขอ
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={() => {
-                          handleUpdateBookingStatus(booking.id, 'approved', '', selectedDriverId, selectedVehicleId);
-                          setSelectedDriverId("");
-                          setSelectedVehicleId("");
-                        }}
-                        className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors"
-                      >
-                        <CheckCircle className="w-4 h-4" /> อนุมัติ
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setRejectingBooking(booking);
-                          setRejectComment("");
-                        }}
-                        className="flex-1 bg-red-50 text-red-600 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors border border-red-100"
-                      >
-                        <XCircle className="w-4 h-4" /> ปฏิเสธ
-                      </button>
+                  ))}
+                  {bookings.filter(b => b.status === 'pending').length === 0 && (
+                    <div className="text-center py-12 bg-white rounded-3xl border border-slate-200 border-dashed">
+                      <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-6 h-6 text-emerald-500" />
+                      </div>
+                      <h3 className="font-bold text-slate-800">ไม่มีคำขอรออนุมัติในขณะนี้</h3>
+                      <p className="text-xs text-slate-400 mt-1">คำขอทั้งหมดได้รับการตรวจสอบแล้ว</p>
                     </div>
-                  </div>
-                ))}
-                {bookings.filter(b => b.status === 'pending').length === 0 && (
-                  <p className="text-slate-400 text-center py-8 bg-white rounded-2xl border border-slate-100 border-dashed">ไม่มีคำขอรออนุมัติ</p>
-                )}
-              </div>
+                  )}
+                </div>
+              ) : (
+                /* Approved Bookings Management */
+                <div className="grid gap-4">
+                  {bookings.filter(b => b.status === 'approved').map(booking => (
+                    <div key={booking.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-emerald-200 transition-colors">
+                      <div className="flex flex-wrap justify-between items-start gap-4 mb-4">
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shrink-0">
+                            <Car className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-slate-900 text-base">{booking.vehicleName}</h3>
+                              <Badge status="approved" />
+                            </div>
+                            <p className="text-sm text-slate-600 mt-0.5">
+                              ผู้ขอ: <span className="font-semibold text-slate-800">{booking.requesterName || booking.userName}</span>
+                              {booking.userEmail && <span className="text-xs text-slate-400 ml-1.5">({booking.userEmail})</span>}
+                            </p>
+                            <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                              <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" /> จุดหมาย: {booking.destination}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Admin Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => {
+                              const recipientEmail = getBookingEmail(booking);
+                              setEmailModalData({
+                                type: 'approved',
+                                recipientEmail,
+                                recipientName: booking.requesterName || booking.userName,
+                                booking,
+                                adminName: profile?.displayName || user?.displayName || 'ผู้ดูแลระบบ'
+                              });
+                              setIsEmailModalOpen(true);
+                            }}
+                            className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-indigo-100"
+                            title="ส่งอีเมลแจ้งผลการอนุมัติซ้ำ"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            ส่งอีเมลแจ้งอีกครั้ง
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCancellingBooking(booking);
+                              setCancellationReason("");
+                            }}
+                            className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-red-100 shadow-sm"
+                            title="ยกเลิกคำขอที่อนุมัติแล้ว พร้อมระบุเหตุผล"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                            ยกเลิกคำขอนี้
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid sm:grid-cols-3 gap-3 p-3.5 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-100">
+                        <div>
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold">วันเวลาเดินทาง</span>
+                          <span className="font-semibold text-slate-800">
+                            {format(safeToDate(booking.startTime), 'd MMM yy HH:mm', { locale: th })} น. - {format(safeToDate(booking.endTime), 'd MMM yy HH:mm', { locale: th })} น.
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold">พนักงานขับรถ</span>
+                          <span className="font-semibold text-indigo-700">{booking.driverName || 'ขับเอง / ไม่ระบุ'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px] uppercase font-bold">วัตถุประสงค์</span>
+                          <span className="font-semibold text-slate-800 truncate block">{booking.purpose}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {bookings.filter(b => b.status === 'approved').length === 0 && (
+                    <p className="text-slate-400 text-center py-8 bg-white rounded-2xl border border-slate-100 border-dashed">
+                      ไม่มีรายการที่อนุมัติแล้วในขณะนี้
+                    </p>
+                  )}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1122,6 +1346,10 @@ export default function App() {
                 vehicles={vehicles}
                 drivers={drivers}
                 onUpdateBooking={handleUpdateBookingStatus}
+                onCancelBooking={(booking) => {
+                  setCancellingBooking(booking);
+                  setCancellationReason("");
+                }}
               />
             </motion.div>
           )}
@@ -1206,28 +1434,48 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-xs text-slate-500">
-                            <Info className="w-3 h-3" />
-                            <span>วัตถุประสงค์: {booking.purpose}</span>
-                          </div>
-                          {booking.passengers && (
+                      <div className="mt-4 flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-1">
                             <div className="flex items-center gap-2 text-xs text-slate-500">
-                              <User className="w-3 h-3" />
-                              <span>ผู้ร่วมเดินทาง: {booking.passengers}</span>
+                              <Info className="w-3 h-3" />
+                              <span>วัตถุประสงค์: {booking.purpose}</span>
                             </div>
-                          )}
-                          {booking.driverName && (
-                            <div className="flex items-center gap-2 text-xs text-indigo-600 font-semibold">
-                              <User className="w-3 h-3" />
-                              <span>พนักงานขับรถ: {booking.driverName}</span>
+                            {booking.passengers && (
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <User className="w-3 h-3" />
+                                <span>ผู้ร่วมเดินทาง: {booking.passengers}</span>
+                              </div>
+                            )}
+                            {booking.driverName && (
+                              <div className="flex items-center gap-2 text-xs text-indigo-600 font-semibold">
+                                <User className="w-3 h-3" />
+                                <span>พนักงานขับรถ: {booking.driverName}</span>
+                              </div>
+                            )}
+                          </div>
+                          {booking.adminComment && !booking.cancellationReason && (
+                            <div className="text-xs text-red-500 font-medium">
+                              หมายเหตุ: {booking.adminComment}
                             </div>
                           )}
                         </div>
-                        {booking.adminComment && (
-                          <div className="text-xs text-red-500 font-medium">
-                            หมายเหตุ: {booking.adminComment}
+
+                        {/* Cancellation Reason Alert Box */}
+                        {booking.status === 'cancelled' && (booking.cancellationReason || booking.adminComment) && (
+                          <div className="mt-2 p-3 bg-red-50/90 border border-red-200/80 rounded-xl text-xs text-red-800">
+                            <div className="flex items-center gap-1.5 font-bold mb-1 text-red-700">
+                              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                              <span>เหตุผลการยกเลิกคำขอ:</span>
+                            </div>
+                            <p className="text-slate-700 pl-5 leading-relaxed">
+                              {booking.cancellationReason || booking.adminComment}
+                            </p>
+                            {booking.cancelledBy && (
+                              <p className="text-[11px] text-slate-400 pl-5 mt-1">
+                                ดำเนินการโดย: {booking.cancelledBy}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1792,12 +2040,26 @@ export default function App() {
                         alert('กรุณากรอกเหตุผลการปฏิเสธด้วยครับ');
                         return;
                       }
-                      handleUpdateBookingStatus(rejectingBooking.id, 'rejected', rejectComment);
+                      const b = rejectingBooking;
+                      const comment = rejectComment.trim();
+                      handleUpdateBookingStatus(b.id, 'rejected', comment);
                       setRejectingBooking(null);
+                      
+                      const recipientEmail = getBookingEmail(b);
+                      setEmailModalData({
+                        type: 'rejected',
+                        recipientEmail,
+                        recipientName: b.requesterName || b.userName,
+                        booking: { ...b, status: 'rejected', adminComment: comment },
+                        reason: comment,
+                        adminName: profile?.displayName || user?.displayName || 'ผู้ดูแลระบบ'
+                      });
+                      setIsEmailModalOpen(true);
                     }}
-                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg active:scale-[0.98] font-sans"
+                    className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg active:scale-[0.98] font-sans flex items-center justify-center gap-2"
                   >
-                    ยืนยันการปฏิเสธ
+                    <XCircle className="w-4 h-4" />
+                    ยืนยันปฏิเสธ & ส่งอีเมล
                   </button>
                 </div>
               </div>
@@ -1805,6 +2067,163 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Admin Cancellation Modal (Even if already Approved) */}
+      <AnimatePresence>
+        {cancellingBooking && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setCancellingBooking(null);
+                setCancellationReason("");
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            >
+              <div className="bg-gradient-to-r from-red-600 to-rose-600 p-5 sm:p-6 text-white sticky top-0 z-10 shadow-md">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-md">
+                      <AlertTriangle className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg sm:text-xl font-bold">ยกเลิกรายการคำขอใช้รถยนต์</h3>
+                      <p className="text-red-100 text-xs sm:text-sm mt-0.5">
+                        {cancellingBooking.status === 'approved' 
+                          ? '⚠️ รายการนี้ได้รับการอนุมัติแล้ว (ผู้ดูแลระบบสามารถยกเลิกได้)' 
+                          : 'ดำเนินการโดยผู้ดูแลระบบ'}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setCancellingBooking(null);
+                      setCancellationReason("");
+                    }} 
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-5 sm:p-7 space-y-5">
+                {/* Booking Info Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2 text-xs text-slate-600">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+                    <span className="font-bold text-slate-800 text-sm">{cancellingBooking.vehicleName}</span>
+                    <Badge status={cancellingBooking.status} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">ผู้ขอใช้รถ</span>
+                      <span className="font-semibold text-slate-800">{cancellingBooking.requesterName || cancellingBooking.userName}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">สถานที่ปลายทาง</span>
+                      <span className="font-semibold text-slate-800">{cancellingBooking.destination}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">ช่วงเวลา</span>
+                      <span className="font-semibold text-slate-800">
+                        {format(safeToDate(cancellingBooking.startTime), 'd MMM yyyy HH:mm', { locale: th })} น. - {format(safeToDate(cancellingBooking.endTime), 'd MMM yyyy HH:mm', { locale: th })} น.
+                      </span>
+                    </div>
+                    {cancellingBooking.driverName && (
+                      <div className="col-span-2">
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">พนักงานขับรถ</span>
+                        <span className="font-semibold text-indigo-700">{cancellingBooking.driverName}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reason Input */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                      ระบุเหตุผลการยกเลิกคำขอ <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  
+                  {/* Quick Preset Buttons */}
+                  <div className="flex flex-wrap gap-1.5 pb-1">
+                    {[
+                      "รถยนต์ขัดข้อง/ต้องส่งซ่อมด่วน",
+                      "ติดภารกิจราชการเร่งด่วนของผู้บริหาร",
+                      "พนักงานขับรถติดภารกิจฉุกเฉิน",
+                      "ขอให้ปรับเปลี่ยนช่วงเวลาการเดินทางใหม่"
+                    ].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setCancellationReason(preset)}
+                        className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-red-50 hover:text-red-700 hover:border-red-200 border border-slate-200 rounded-lg transition-colors text-slate-600"
+                      >
+                        + {preset}
+                      </button>
+                    ))}
+                  </div>
+
+                  <textarea 
+                    value={cancellationReason} 
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    placeholder="กรุณาระบุเหตุผลการยกเลิกเพื่อส่งแจ้งเตือนไปยังผู้ขอใช้รถ..." 
+                    required 
+                    rows={3}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none font-sans text-slate-800 placeholder:text-slate-400" 
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    * เมื่อกดยืนยัน ระบบจะปรับสถานะเป็น "ยกเลิกแล้ว" และเปิดหน้าต่างส่งอีเมลแจ้งเตือนไปยังผู้ขอใช้รถทันที
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setCancellingBooking(null);
+                      setCancellationReason("");
+                    }}
+                    className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors font-sans text-sm"
+                  >
+                    ปิดหน้าต่าง
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (!cancellationReason.trim()) {
+                        alert('กรุณาระบุเหตุผลการยกเลิกคำขอด้วยครับ');
+                        return;
+                      }
+                      handleAdminCancelBooking(cancellingBooking.id, cancellationReason);
+                    }}
+                    className="flex-1 bg-gradient-to-r from-red-600 to-rose-600 text-white py-3 rounded-xl font-bold hover:from-red-700 hover:to-rose-700 transition-all shadow-lg shadow-red-200 active:scale-[0.98] font-sans text-sm flex items-center justify-center gap-2"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    ยืนยันยกเลิก & ส่งอีเมล
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Email Notification Modal */}
+      <EmailNotificationModal 
+        data={emailModalData} 
+        isOpen={isEmailModalOpen} 
+        onClose={() => setIsEmailModalOpen(false)} 
+      />
     </div>
   );
 }
